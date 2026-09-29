@@ -1,24 +1,25 @@
 # Reflection report
 
 ## Architecture and design
-The solution uses a four-agent structure: one orchestrator and three worker agents. The orchestrator receives customer text, identifies the request type, and decides when to delegate to inventory, pricing, and sales functions. This keeps responsibilities separated, reducing overlap and preserving clear data flow.
+The implementation uses smolagents with one orchestrator and three managed workers. The orchestrator has no direct business tools: it delegates the inventory assessment first, then pricing for eligible requests, and sales finalization only after a valid quote. Each tool's ownership and the JSON passed between stages are shown in the workflow diagram.
 
-The inventory agent validates stock availability against the request quantity and checks whether restocking by supplier can meet the customer deadline. The pricing agent consults historical quote patterns and computes a quote using a tiered discount model. The sales agent performs the final sale or rejects the request with explanation when the order is impossible.
+The LLM coordinates the tasks, while deterministic application logic remains authoritative for catalog aliases, stock and due-date checks, discount calculations, and transaction writes. This prevents fluent model responses from overriding unsupported products, incorrect stock figures, or invalid quote totals. Sales commits are atomic and keyed by request, so retries do not double-charge or duplicate units.
 
-This design follows the project constraints because the system stays within the five-agent limit and uses a clear operational flow: customer request -> inventory validation -> financial and quoting checks -> transaction logging -> customer-facing explanation.
+## Evaluation method
+The evaluator resets the database to the fixed seed, processes every row in the supplied 20-request sample in stable date order, and records a row-level disposition. Each output row includes the normalized request items, the before/after cash and inventory values, ledger totals, reconciliation status, orchestration mode, delegated worker names, and the customer-facing explanation.
 
-## Evaluation results
-The script was executed against the provided sample dataset and produced a `test_results.csv` file. The results demonstrate that the system accepted orders when stock and supplier lead times allowed it, while rejecting impossible orders with explicit rationale.
+Accepted orders write item sales and any required supplier purchase/receipt entries to the ledger. Orders with unsupported catalog products or deadlines that cannot be met are rejected with those reasons. The runner fails if the dataset is incomplete, the rubric minimums are missed, fewer than three fulfilled orders complete the managed-agent sequence, or any result fails ledger reconciliation.
 
-The accepted cases include multiple real sales transactions, which changed the cash balance on several requests. The rejected cases are also meaningful: impossible quantities, insufficient stock, or delivery windows that could not be met were clearly explained to the customer. This matches the rubric requirement of having both successful and unsuccessful outcomes.
+The saved [evaluation output](../input_output/outputs/test_results.csv) is the source of truth for the final counts and financial values; its entries are computed from the transaction ledger rather than hard-coded in this report.
 
 ## Strengths
-- Clear separation of roles between inventory, pricing, and sales.
-- Use of real helper functions from the starter project to keep the system grounded in the business data model.
-- Explainable customer responses with reasons for acceptance, rejection, or restock planning.
-- Deterministic execution that works without a live LLM key when the environment is not configured.
+- Distinct agent roles and real managed-agent calls in the prescribed sequence.
+- Catalog validation distinguishes unsupported products from temporarily unavailable stock.
+- Projected stock accounts for previously committed future receipts and sales, preventing over-selling.
+- Customer explanations use catalog facts and avoid exposing internal financial details.
+- A deterministic fallback allows the same business checks and output gates to run without an API key.
 
-## Proposed improvements
-1. Add a more advanced NLP parser to recognize more product variants and ambiguous wording in customer requests.
-2. Expand the agent system with a dedicated forecasting agent to predict reorder timing and optimize inventory thresholds.
-3. Add an audit module that stores customer-facing decisions and tracks acceptance/rejection reasons for easier reporting and operational monitoring.
+## Future improvements
+1. Expand catalog alias coverage using additional labeled request examples and parser regression tests.
+2. Add a separate forecasting worker only when historical demand data can validate its recommendations.
+3. Add structured audit views for request-level supplier and inventory commitments.

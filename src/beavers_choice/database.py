@@ -96,9 +96,19 @@ def init_database(db_engine_instance: Engine, seed: int = 137) -> Engine:
                 "units": [],
                 "price": [],
                 "transaction_date": [],
+                "request_key": [],
             }
         )
         transactions_schema.to_sql("transactions", db_engine_instance, if_exists="replace", index=False)
+        with db_engine_instance.begin() as connection:
+            connection.execute(text("DROP TABLE IF EXISTS sales_orders"))
+            connection.execute(
+                text(
+                    "CREATE TABLE sales_orders ("
+                    "request_key TEXT PRIMARY KEY, status TEXT NOT NULL, total_amount REAL NOT NULL, "
+                    "delivery_date TEXT NOT NULL, response TEXT NOT NULL)"
+                )
+            )
 
         initial_date = datetime(2025, 1, 1).isoformat()
 
@@ -129,7 +139,19 @@ def init_database(db_engine_instance: Engine, seed: int = 137) -> Engine:
         quotes_df = quotes_df[["request_id", "total_amount", "quote_explanation", "order_date", "job_type", "order_size", "event_type"]]
         quotes_df.to_sql("quotes", db_engine_instance, if_exists="replace", index=False)
 
-        inventory_df = generate_sample_inventory(paper_supplies, seed=seed)
+        seeded_inventory_df = generate_sample_inventory(paper_supplies, seed=seed)
+        seeded_stock = seeded_inventory_df.set_index("item_name")["current_stock"]
+        seeded_minimums = seeded_inventory_df.set_index("item_name")["min_stock_level"]
+        inventory_df = pd.DataFrame(
+            [
+                {
+                    **item,
+                    "current_stock": int(seeded_stock.get(item["item_name"], 0)),
+                    "min_stock_level": int(seeded_minimums.get(item["item_name"], 0)),
+                }
+                for item in paper_supplies
+            ]
+        )
         initial_transactions = [{
             "item_name": None,
             "transaction_type": "sales",
@@ -137,7 +159,7 @@ def init_database(db_engine_instance: Engine, seed: int = 137) -> Engine:
             "price": 50000.0,
             "transaction_date": initial_date,
         }]
-        for _, item in inventory_df.iterrows():
+        for _, item in seeded_inventory_df.iterrows():
             initial_transactions.append(
                 {
                     "item_name": item["item_name"],
@@ -213,11 +235,9 @@ def get_stock_level(item_name: str, as_of_date: Union[str, datetime]) -> pd.Data
 
 
 def get_supplier_delivery_date(input_date_str: str, quantity: int) -> str:
-    print(f"FUNC (get_supplier_delivery_date): Calculating for qty {quantity} from date string '{input_date_str}'")
     try:
         input_date_dt = datetime.fromisoformat(input_date_str.split("T")[0])
     except (ValueError, TypeError):
-        print(f"WARN (get_supplier_delivery_date): Invalid date format '{input_date_str}', using today as base.")
         input_date_dt = datetime.now()
 
     if quantity <= 10:
