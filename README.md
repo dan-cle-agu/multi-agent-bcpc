@@ -1,36 +1,45 @@
 # Beaver's Choice Paper Company Multi-Agent Project
 
-An inventory, pricing, and sales workflow implemented with `smolagents`: one orchestrator delegates to three specialist agents, while deterministic business rules validate catalog matches, stock, delivery feasibility, quote totals, and ledger writes.
+Course entrypoint and supplied database helpers remain in `project_starter.py`. The multi-agent tools, three specialist workers, and orchestrator are implemented in `template.py` and called by the starter's `run_test_scenarios()`.
 
-## Project layout
+## Project files
 
-- `src/beavers_choice/`: application package (agents, pricing, database, and evaluation workflow).
-- `input_output/inputs/`: source catalog history and sample request datasets.
-- `input_output/outputs/`: generated evaluation CSV and workflow diagram.
-- `docs/`: architecture, evaluation, and reflection documentation.
-- `tests/`: API-free parser, ledger, and full-dataset regression checks.
-- `project_starter.py`: compatible project entry point.
+- `project_starter.py`: product catalog, deterministic inventory seed, SQLite helpers, and CSV evaluator.
+- `template.py`: smolagents inventory, pricing, sales, and managed orchestrator agents; it receives the starter helpers as dependencies.
+- `quote_requests.csv`: historical customer inquiries loaded into the `quote_requests` table.
+- `quotes.csv`: historical quote totals, explanations, and metadata loaded into the `quotes` table.
+- `quote_requests_sample.csv`: 20 dated scenarios replayed by `run_test_scenarios()`.
+- `test_results.csv`: required root-level evaluation output. A mirror is also written to `input_output/outputs/`.
+- `tests/test_template_flow.py`: deterministic integration checks derived from the seed and supplied request CSVs.
 
-The six original starter files remain in the repository root for course compatibility; the application reads its organized input copies from `input_output/inputs/`.
+The database and all CSV/output paths resolve relative to `project_starter.py`, even when launched from the parent workspace directory.
 
 ## Setup and run
 
-```bash
+```powershell
 python -m pip install -r requirements.txt
-python project_starter.py
+# From the project root
+python .\project_starter.py
 ```
 
-Run the deterministic regression suite without making API calls:
+From the parent `samples` directory, run `python .\multi-agent-bcpc\project_starter.py`.
 
-```bash
+Configure `.env` with `UDACITY_OPENAI_API_KEY` for live model delegation. To replay the evaluator without API calls, set `$env:BCPC_USE_LLM="0"` before running it; deterministic business rules still exercise the full catalog, inventory, quote, and ledger path.
+
+```powershell
+$env:BCPC_USE_LLM = "0"
+python .\project_starter.py
+```
+
+Run regression tests without API calls:
+
+```powershell
 python -m unittest discover -s tests -v
 ```
 
-To use the live OpenAI-compatible endpoint, copy `.env.example` to `.env` and set `UDACITY_OPENAI_API_KEY`. Without a configured key, deterministic fallback still exercises catalog, stock, quote, and ledger rules; the full course evaluator intentionally fails its live managed-agent gate unless at least three fulfilled orders pass through the three workers. The generated report records the mode and successful worker tool calls.
+## Design and results
 
-## Results and design
-
-- Evaluation: [input_output/outputs/test_results.csv](input_output/outputs/test_results.csv)
-- Implemented agent/tool mapping: [input_output/outputs/workflow_diagram.md](input_output/outputs/workflow_diagram.md)
+- Agent/tool mapping: [input_output/outputs/workflow_diagram.md](input_output/outputs/workflow_diagram.md)
 - Architecture: [docs/architecture.md](docs/architecture.md)
-- Reflection and evaluation notes: [docs/reflection_report.md](docs/reflection_report.md), [docs/evaluation_summary.md](docs/evaluation_summary.md)
+- Evaluation summary: [docs/evaluation_summary.md](docs/evaluation_summary.md)
+- Reflection: [docs/reflection_report.md](docs/reflection_report.md)

@@ -1,51 +1,47 @@
-# Implemented Managed-Agent Workflow
+# Course Starter + Template Agent Workflow
 
-The `orchestrator_agent` has **no direct business tools**. It manages the three specialist `ToolCallingAgent` instances through smolagents' `managed_agents` mechanism and invokes them in sequence. A rejected inventory assessment stops the sequence; an eligible request proceeds through pricing and sales.
+`project_starter.py` owns the supplied database helpers and scenario runner. It passes those helper functions to `template.py`, where the three specialist workers and `orchestrator_agent` are defined. The orchestrator has no direct business tools and delegates the request in order.
 
 ```mermaid
 flowchart LR
-    C[Customer request + request date/key] --> O[Orchestrator Agent<br/>ToolCallingAgent<br/>direct tools: none]
+    C[Customer text + request date/key] --> S[project_starter.py<br/>database helpers + run_test_scenarios]
+    S --> O[orchestrator_agent<br/>ToolCallingAgent<br/>managed_agents, no direct tools]
 
-    O -->|1. Original request and date| I[Inventory Agent<br/>managed worker]
-    I --> IT1[inventory_assessment_tool<br/>Catalog + stock + deadline assessment<br/>assess_order -> parse_requested_items<br/>check_item_stock -> get_stock_level<br/>get_supplier_delivery_date + committed ledger movements]
-    I --> IT2[inventory_check_tool<br/>Check one canonical item/quantity<br/>check_item_stock -> get_stock_level]
-    I --> IT3[inventory_snapshot_tool<br/>Snapshot all positive stock<br/>get_all_inventory]
-    I --> IT4[supplier_delivery_tool<br/>Estimate supplier lead time<br/>get_supplier_delivery_date]
-    IT1 -->|JSON: catalog status, available/projected units, shortages, due date| O
-    IT2 --> I
-    IT3 --> I
-    IT4 --> I
+    O -->|Request text + date| I[inventory_agent]
+    I --> IT1[inventory_assessment_tool<br/>parse + catalog resolve + check stock/deadline<br/>get_stock_level + get_supplier_delivery_date]
+    I --> IT2[inventory_snapshot_tool<br/>inventory snapshot<br/>get_all_inventory]
+    I --> IT3[supplier_delivery_tool<br/>supplier ETA<br/>get_supplier_delivery_date]
+    IT1 -->|Assessment JSON: status, canonical lines, stock, ETA| O
 
-    O -->|2. Only if eligible: unchanged assessment JSON| P[Pricing Agent<br/>managed worker]
-    P --> PT[quote_order_tool<br/>Price every approved catalog line and apply quantity discounts<br/>quote_assessment -> calculate_quote]
-    PT -->|JSON: itemized prices and validated total| O
+    O -->|Eligible only: assessment JSON| P[pricing_agent]
+    P --> PT1[quote_history_tool<br/>historical quote lookup<br/>search_quote_history]
+    P --> PT2[quote_order_tool<br/>catalog pricing + bulk discounts]
+    PT1 --> P
+    PT2 -->|Quote JSON: item totals, discount, total| O
 
-    O -->|3. Only if priced: assessment + quote + request key| S[Sales Agent<br/>managed worker]
-    S --> ST1[sales_finalize_order_tool<br/>Validate and atomically record order once<br/>finalize_order -> transactions + sales_orders ledger rows]
-    S --> ST2[financial_report_tool<br/>Report cash/assets/inventory<br/>generate_financial_report -> get_cash_balance + get_stock_level]
-    ST1 -->|JSON: accepted/rejected, delivery date, ledger writes| O
-    ST2 --> S
+    O -->|Priced only: assessment + quote + key| A[sales_agent]
+    A --> AT1[sales_finalize_order_tool<br/>stock-safe ledger writes<br/>create_transaction]
+    A --> AT2[cash_balance_tool<br/>cash snapshot<br/>get_cash_balance]
+    A --> AT3[financial_report_tool<br/>global financial/inventory report<br/>generate_financial_report]
+    AT1 -->|Sale disposition + date| O
+    AT2 --> A
+    AT3 --> A
 
-    O -->|Customer-safe response from validated result| R[Customer response]
-
-    subgraph Framework[smolagents managed-agent calls]
-        O
-        I
-        P
-        S
-    end
+    O --> R[Customer response]
+    S -->|All 20 rows + cash/inventory + reconciliation| T[test_results.csv]
 ```
 
-## Tool ownership and purpose
+## Tool ownership and helper mapping
 
-| Agent | Configured tool | Purpose and source helper(s) |
+| Worker | Configured tool | Purpose and starter helper |
 |---|---|---|
-| Inventory | `inventory_assessment_tool` | Parses each requested line, distinguishes unsupported products, checks current/projected stock, and verifies delivery feasibility. Uses `assess_order`, `parse_requested_items`, `check_item_stock`, `get_stock_level`, and `get_supplier_delivery_date`. |
-| Inventory | `inventory_check_tool` | Checks one catalog item's stock for a requested quantity. Uses `check_item_stock` and `get_stock_level`. |
-| Inventory | `inventory_snapshot_tool` | Returns positive stock by catalog item. Uses `get_all_inventory`. |
-| Inventory | `supplier_delivery_tool` | Estimates supplier lead time. Uses `get_supplier_delivery_date`. |
-| Pricing | `quote_order_tool` | Prices every approved line using the catalog discount policy. Uses `quote_assessment` and `calculate_quote`. |
-| Sales | `sales_finalize_order_tool` | Verifies the assessment/quote total and atomically records purchase, receipt, sale, and idempotency rows. Uses `finalize_order`. |
-| Sales | `financial_report_tool` | Returns a financial and inventory snapshot. Uses `generate_financial_report`, `get_cash_balance`, and `get_stock_level`. |
+| Inventory | `inventory_assessment_tool` | Normalize each customer line, distinguish unsupported items, validate stock and delivery. Uses `get_stock_level` and `get_supplier_delivery_date`. |
+| Inventory | `inventory_snapshot_tool` | Read all positive stock. Uses `get_all_inventory`. |
+| Inventory | `supplier_delivery_tool` | Estimate supplier lead time. Uses `get_supplier_delivery_date`. |
+| Pricing | `quote_history_tool` | Find comparable prior requests and quotes. Uses `search_quote_history`. |
+| Pricing | `quote_order_tool` | Apply catalog prices and quantity discounts to normalized lines. |
+| Sales | `sales_finalize_order_tool` | Record order costs, supplier receipts, and item sales after stock/deadline validation. Uses `create_transaction`. |
+| Sales | `cash_balance_tool` | Read cash at a date. Uses `get_cash_balance`. |
+| Sales | `financial_report_tool` | Read global cash, inventory valuation, assets, and top sales. Uses `generate_financial_report`. |
 
-The model coordinates work and creates language summaries; catalog resolution, stock/deadline eligibility, prices, and ledger writes are validated by deterministic application code. Unsupported goods are not represented as zero-stock catalog products.
+The orchestrator calls inventory first; rejected assessments do not proceed to pricing or sales. Accepted orders require a valid quote and pass through the sales finalizer. When a model key is absent, the deterministic path uses the same assessment, quote, and finalization functions for local regression tests.

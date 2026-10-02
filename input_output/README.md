@@ -1,6 +1,6 @@
 # Input and output artifacts
 
-This directory contains the data consumed by the project and the generated artifacts produced during evaluation.
+This directory contains organized copies of the input files and a mirror of the generated output. The course runner reads its canonical CSV inputs from the project root.
 
 ## Inputs
 - `inputs/quote_requests.csv`
@@ -9,3 +9,5 @@ This directory contains the data consumed by the project and the generated artif
 
 ## Outputs
 - `outputs/test_results.csv`
+
+The evaluator writes root-level `test_results.csv` for the course and mirrors it to `outputs/test_results.csv`.

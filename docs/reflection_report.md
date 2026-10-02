@@ -1,25 +1,26 @@
 # Reflection report
 
-## Architecture and design
-The implementation uses smolagents with one orchestrator and three managed workers. The orchestrator has no direct business tools: it delegates the inventory assessment first, then pricing for eligible requests, and sales finalization only after a valid quote. Each tool's ownership and the JSON passed between stages are shown in the workflow diagram.
+## Architecture and workflow
+`project_starter.py` retains the course catalog, SQLite helpers, deterministic seed, and `run_test_scenarios()` evaluator. It passes those helpers to `template.py`, which implements four roles with smolagents: an orchestrator plus inventory, pricing, and sales workers. Inventory runs first; pricing runs only for eligible requests; sales finalization runs only after a valid quote.
 
-The LLM coordinates the tasks, while deterministic application logic remains authoritative for catalog aliases, stock and due-date checks, discount calculations, and transaction writes. This prevents fluent model responses from overriding unsupported products, incorrect stock figures, or invalid quote totals. Sales commits are atomic and keyed by request, so retries do not double-charge or duplicate units.
+Deterministic code resolves catalog aliases, checks stock and deadlines, calculates discounts, and guards sales. The model coordinates workers when a valid API credential is available; it does not determine catalog membership or invent stock values. The system records a unique request key to avoid duplicate finalization within an evaluation run.
 
-## Evaluation method
-The evaluator resets the database to the fixed seed, processes every row in the supplied 20-request sample in stable date order, and records a row-level disposition. Each output row includes the normalized request items, the before/after cash and inventory values, ledger totals, reconciliation status, orchestration mode, delegated worker names, and the customer-facing explanation.
+## Evaluation method and results
+The runner resets SQLite with seed `137`, processes all 20 rows in stable date order, and writes root-level `test_results.csv` plus a mirror under `input_output/outputs/`. Rows record status, reason, quote, cash/inventory state, orchestration mode, and ledger reconciliation.
 
-Accepted orders write item sales and any required supplier purchase/receipt entries to the ledger. Orders with unsupported catalog products or deadlines that cannot be met are rejected with those reasons. The runner fails if the dataset is incomplete, the rubric minimums are missed, fewer than three fulfilled orders complete the managed-agent sequence, or any result fails ledger reconciliation.
-
-The saved [evaluation output](../input_output/outputs/test_results.csv) is the source of truth for the final counts and financial values; its entries are computed from the transaction ledger rather than hard-coded in this report.
+The live run on 2026-10-02 used the renewed API credential in the user's `.venv`. It recorded **5 fulfilled**, **15 rejected**, **5 cash-changing** requests, and **20/20 reconciled** rows. Every request used the managed-agent route; all five fulfilled requests delegated to inventory, pricing, and sales, with no manager errors. Final cash was `$45,310.90` and inventory value was `$4,660.05`. The row-level [root test_results.csv](../test_results.csv) is the detailed result.
 
 ## Strengths
-- Distinct agent roles and real managed-agent calls in the prescribed sequence.
+- The entrypoint exposes the supplied helpers and course evaluator; agent tools are defined in the requested `template.py`.
 - Catalog validation distinguishes unsupported products from temporarily unavailable stock.
 - Projected stock accounts for previously committed future receipts and sales, preventing over-selling.
 - Customer explanations use catalog facts and avoid exposing internal financial details.
-- A deterministic fallback allows the same business checks and output gates to run without an API key.
+- Seeded inventory and deterministic tests make stock movement reproducible.
+- The five-test suite derives expected stock from the fixed seed and selects valid/invalid customer lines from the supplied CSV rather than using a hand-authored inventory story.
+
+One remaining limit is that purchase, receipt, and sale writes use multiple calls to `create_transaction`; a database failure between calls could leave a partial order.
 
 ## Future improvements
-1. Expand catalog alias coverage using additional labeled request examples and parser regression tests.
-2. Add a separate forecasting worker only when historical demand data can validate its recommendations.
-3. Add structured audit views for request-level supplier and inventory commitments.
+1. Add CI that runs deterministic tests on supported Python/Pandas combinations and a credential-gated live smoke test.
+2. Make purchase, receipt, and sale writes atomic in a single database transaction.
+3. Extend parser regression cases using additional real request variants.
